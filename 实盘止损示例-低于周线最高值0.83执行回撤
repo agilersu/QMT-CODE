@@ -1,0 +1,133 @@
+ #encoding:gbk
+'''
+实盘止损示例-低于周线最高值0.83执行回撤-My first QMT Code in Production Envirment.
+'''
+import pandas as pd
+import numpy as np
+import talib
+
+class a():
+    pass
+    
+A = a()
+
+
+
+def init(ContextInfo):
+    # 设置股票池
+    ContextInfo.trade_code_list=['601225.SH','603199.SH']
+    ContextInfo.set_universe(ContextInfo.trade_code_list)
+    
+    # 设置账号
+    ContextInfo.accID = '170000347283'
+    
+    
+    # 初始化交易信号字典，dict.fromkeys()是字典类的一个类方法，用于创建一个新的字典
+    A.buy_open   = dict.fromkeys(ContextInfo.trade_code_list,False)
+    A.sell_close = dict.fromkeys(ContextInfo.trade_code_list,False)
+    
+    
+def handlebar(ContextInfo):
+    
+    # 读取股票池
+    k = ContextInfo.get_universe()
+    d = ContextInfo.barpos
+    
+    #获取当前K线对应的时间的时间戳
+    realtime = ContextInfo.get_bar_timetag(d)
+    nowdate = timetag_to_datetime(realtime,'%Y%m%d')
+    
+    #获取各类持仓信息get_holdings为用户自定义函数，返回是个字典；主要 采用get_trade_detail_data系统函数（返回是list），获得包括持仓成本，手数，可用余额，浮动盈亏等信息
+    holdings = get_holdings(ContextInfo.accID,"STOCK")
+   
+   # 获取股票日线行情,返回：一个字典dict结构，key为stockcode.market,#value 为行情数据 list，list 中第 0 位为最早的价格，第 1 位为次早价格，依次下去。dividend_type：默认参数，number，除复权，默认0不复权,3：等比向前复权
+    #klines_1d = ContextInfo.get_history_data(21,'1d','close',3)
+   # 获取股票周线行情,返回：一个字典dict结构，
+    klines_1w = ContextInfo.get_history_data(21,'1w','high',3)
+    
+    # 获取最新tick分笔数据行情，根据stock_code返回一个dict，该字典的key值是股票代码，
+    #其值仍然是一个dict，在该dict中存放股票代码对应的最新的数据,该字典数据key值有：lastPrice:最新价amount:成交额volume:成交量(手)...等
+    ticks = ContextInfo.get_full_tick(ContextInfo.trade_code_list)
+    
+    #for stk in klines_1d.keys():
+    for stk in klines_1w.keys():        
+        # 获取昨收盘价
+        #lastday_close = klines_1d[stk][-1]
+        # 获取上周周线最高价
+        lastweek_high = klines_1w[stk][-1]        
+        
+        # 获取ma数据
+        #ma5 = np.mean(klines_1d[stk][-5:])
+        #ma20 = np.mean(klines_1d[stk][-20:])
+        
+        
+        # 判断金叉死叉情况，买卖股票
+        #if stk not in holdings.keys() and ma5 > ma20:
+        if stk not in holdings.keys():            
+            # 记录开仓信号
+            A.buy_open[stk] = True
+            
+        elif stk in holdings.keys() :
+            # 记录卖出信号
+            A.sell_close[stk] = True
+        
+        if A.buy_open[stk]:
+            # 买入
+            order_lots(stk,1,ContextInfo,ContextInfo.accID)
+        #重置交易信号
+            A.buy_open[stk] = False
+        
+
+        if stk in holdings.keys():
+        #===================固定止损部分低于周线最高值0.83执行=======================    
+            #if holdings[stk]["可用余额"]>0 and holdings[stk]["浮动盈亏"] < 100:
+            if holdings[stk]["可用余额"]>0 and ticks[stk]['lastPrice'] < lastweek_high*0.83:                
+                print("触发固定止损低于周线最高值0.83执行")
+                
+                order_lots(stk,-1,ContextInfo,ContextInfo.accID)
+   
+    
+    
+
+def get_holdings(accountid,datatype):
+    '''
+    Arg:
+        accountid:账户id
+        datatype:
+            'FUTURE'：期货
+            'STOCK'：股票
+            ......
+    return:
+    {股票名:{'手数':int,"持仓成本":float,'浮动盈亏':float,"可用余额":int}}
+    '''
+    PositionInfo_dict={}
+    resultlist = get_trade_detail_data(accountid,datatype,'POSITION')
+    for obj in resultlist:
+        PositionInfo_dict[obj.m_strInstrumentID+"."+obj.m_strExchangeID] = {
+        "手数":obj.m_nVolume/100,
+        "持仓成本":obj.m_dOpenPrice,
+        "浮动盈亏":obj.m_dFloatProfit,
+        "可用余额":obj.m_nCanUseVolume
+        }
+    return PositionInfo_dict
+
+
+#获取账户总权益m_dBanlance
+def get_totalvalue(accountid,datatype):
+    '''获取账户总权益'''
+    result=0
+    resultlist=get_trade_detail_data(accountid,datatype,'ACCOUNT')
+    for obj in resultlist:
+        result=obj.m_dBalance
+    return result
+
+def write_pickle(data:dict, symbol: str):
+    """写入缓存变量到plk文件中"""
+    with open(os.getcwd() + '\\' +'{}{}'.format(symbol,'.plk'),'wb') as f:
+        pickle.dump(data, f)
+
+def load_pickle(file:str):
+    '''读取本地缓存变量到内存'''
+    with open(file,'rb') as f:
+        plk_data = pickle.load(f)
+    return plk_data
