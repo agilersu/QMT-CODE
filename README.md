@@ -1,2 +1,1 @@
-# QMT-CODE
-#使用QMT系统编写股票策略，python编码。
+#使用QMT系统编写股票实盘与回测的策略，采用python编码。
